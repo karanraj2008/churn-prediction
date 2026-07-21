@@ -1,16 +1,16 @@
 import pandas as pd
-import pathlib as path
+from pathlib import Path
 
 
 # ---- Paths ----
 # Path(__file__) = this file's location. .parent.parent.parent walks up
 # from src/data/make_dataset.py to the project root (churn-prediction/).
-PROJECT_ROOT = path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / "WA_Fn-UseC_-Telco-Customer-Churn.csv"
 PROCESSED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "churn_cleaned.csv"
 
 
-def load_raw_data(path : path) -> pd.DataFrame:
+def load_raw_data(path : Path) -> pd.DataFrame:
     """ load the raw csv file"""
     df = pd.read_csv(path)
     return df
@@ -32,7 +32,7 @@ def clean_data(df : pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-def save_processed_data(df : pd.DataFrame, path : path) -> None:
+def save_processed_data(df : pd.DataFrame, path : Path) -> None:
     """ save the processed data to a csv file"""
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False)
