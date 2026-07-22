@@ -19,21 +19,15 @@ def load_raw_data(path : Path) -> pd.DataFrame:
     df = pd.read_csv(path)
     return df
 
-def clean_data(df : pd.DataFrame) -> pd.DataFrame:
-    """ clean the raw data"""
-    
-    #1. Convert TotalCharges to numeric, coercing errors to NaN
-    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors='coerce')
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
+    print("After to_numeric, missing:", df['TotalCharges'].isnull().sum())
 
-    #2. fill missing data in TotalCharges after calculation using tenure x MonthlyCharges
-    df["TotalCharges"].fillna(df["tenure"] * df["MonthlyCharges"], inplace=True)
-    
-    #3. let's drop duplicate now 
-    df.drop_duplicates(inplace=True)
+    df['TotalCharges'] = df['TotalCharges'].fillna(df['tenure'] * df['MonthlyCharges'])
+    print("After fillna, missing:", df['TotalCharges'].isnull().sum())
 
-    #4. drop customerID column as it doesn't affect the churn prediction
-    df.drop(columns=["customerID"], inplace=True)
-
+    df = df.drop_duplicates()
+    df = df.drop(columns=['customerID'])
     return df
 
 def save_processed_data(df : pd.DataFrame, path : Path) -> None:

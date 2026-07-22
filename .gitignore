@@ -1,6 +1,6 @@
 /data/
-models/*.pkl
-models/*.joblib
+/models/*.pkl
+/models/*.joblib
 __pycache__/
 *.pyc
 venv/
