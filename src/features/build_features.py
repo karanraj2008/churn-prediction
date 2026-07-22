@@ -13,11 +13,11 @@ Yes/No to 1/0, one-hot encode these columns).
 
 import pandas as pd
 from pathlib import Path
-
+from src.config import DATA_VERSION
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-CLEANED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "churn_cleaned.csv"
-FEATURES_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "churn_features.csv"
+CLEANED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / f"churn_cleaned_{DATA_VERSION}.csv"
+FEATURES_DATA_PATH = PROJECT_ROOT / "data" / "processed" / f"churn_features_{DATA_VERSION}.csv"
 
 
 def load_cleaned_data(path : Path) -> pd.DataFrame:

@@ -1,13 +1,17 @@
+"""
+make_dataset.py
+Loads the raw Telco churn CSV, cleans it, and saves a processed version.
+Run directly: python src/data/make_dataset.py
+"""
+
 import pandas as pd
 from pathlib import Path
-
+from src.config import DATA_VERSION , RAW_DATA_FILENAMES
 
 # ---- Paths ----
-# Path(__file__) = this file's location. .parent.parent.parent walks up
-# from src/data/make_dataset.py to the project root (churn-prediction/).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / "WA_Fn-UseC_-Telco-Customer-Churn.csv"
-PROCESSED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / "churn_cleaned.csv"
+RAW_DATA_PATH = PROJECT_ROOT / "data" / "raw" / RAW_DATA_FILENAMES[DATA_VERSION]
+PROCESSED_DATA_PATH = PROJECT_ROOT / "data" / "processed" / f"churn_cleaned_{DATA_VERSION}.csv"
 
 
 def load_raw_data(path : Path) -> pd.DataFrame:
