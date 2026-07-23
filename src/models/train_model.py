@@ -48,10 +48,43 @@ XGB_PARAM_GRID = {
 
 
 def load_features_data(path: Path) -> pd.DataFrame:
-    """Load the model-ready output of build_features.py."""
+    """Load the model-ready output of build_features.py. Raises a clear
+    error if it's missing, rather than pandas' generic FileNotFoundError."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Features data file not found at: {path}\n"
+            f"Run 'python -m src.features.build_features' first to generate it."
+        )
     df = pd.read_csv(path)
     logger.info(f"Loaded features data: {df.shape[0]} rows, {df.shape[1]} columns")
     return df
+
+
+def validate_features_data(df: pd.DataFrame, target_column: str) -> None:
+    """Fail loudly before training if the target column is missing, has
+    unexpected values, or the dataset isn't fully numeric — training would
+    otherwise fail deep inside sklearn with a much less obvious error."""
+    if target_column not in df.columns:
+        raise ValueError(f"Target column '{target_column}' not found in features data.")
+
+    unexpected_values = set(df[target_column].unique()) - {0, 1}
+    if unexpected_values:
+        raise ValueError(
+            f"Target column '{target_column}' has unexpected values: "
+            f"{unexpected_values}. Expected only 0/1."
+        )
+
+    non_numeric_cols = df.select_dtypes(exclude=['number']).columns.tolist()
+    if non_numeric_cols:
+        raise ValueError(
+            f"Features data has non-numeric column(s): {non_numeric_cols}. "
+            f"Check that build_features.py fully encoded these."
+        )
+
+    if df.isnull().sum().sum() > 0:
+        raise ValueError("Features data contains missing values — cannot train on this.")
+
+    logger.info("Features data validation passed")
 
 
 def split_training_testing_data(df: pd.DataFrame, target_column: str,
@@ -80,6 +113,10 @@ def scale_features(x_train, x_test, numeric_cols):
     to x_test. Fitting on the full dataset before splitting would leak test
     set statistics into training.
     """
+    missing = [col for col in numeric_cols if col not in x_train.columns]
+    if missing:
+        raise ValueError(f"Cannot scale — column(s) not found in data: {missing}")
+
     scaler = StandardScaler()
 
     x_train_scaled = x_train.copy()
@@ -91,14 +128,15 @@ def scale_features(x_train, x_test, numeric_cols):
     logger.info(f"Scaled {len(numeric_cols)} numeric columns: {numeric_cols}")
     return x_train_scaled, x_test_scaled, scaler
 
-def train_logistic_regression(x_train, y_train, random_state: int) -> LogisticRegression:
-    """baseline model . class weight = balanced to account for class imbalance"""
 
-    logger.info("Training Logistic Regression model...")
+def train_logistic_regression(x_train, y_train, random_state: int) -> LogisticRegression:
+    """Baseline model. class_weight='balanced' handles the churn imbalance
+    (73.5% No / 26.5% Yes) without duplicating any rows."""
+    logger.info("Training Logistic Regression...")
     model = LogisticRegression(class_weight='balanced', random_state=random_state, max_iter=1000)
     model.fit(x_train, y_train)
-    logger.info("Logistic Regression training complete.")
     return model
+
 
 def train_random_forest(x_train, y_train, param_grid: dict, random_state: int) -> RandomForestClassifier:
     """
@@ -108,72 +146,58 @@ def train_random_forest(x_train, y_train, param_grid: dict, random_state: int) -
     trees grow unconstrained by default; tuning max_depth/min_samples_leaf
     fixes this.
     """
-    logger.info("Training Random Forest model with GridSearchCV...")
+    logger.info("Training Random Forest (grid search)...")
     grid = GridSearchCV(
-        estimator=RandomForestClassifier(class_weight='balanced', random_state=random_state),
-        param_grid=param_grid,
-        scoring='f1',
-        cv=5,
-        n_jobs=-1
+        RandomForestClassifier(class_weight='balanced', random_state=random_state),
+        param_grid, cv=5, scoring='f1', n_jobs=-1
     )
-
     grid.fit(x_train, y_train)
-    best_model = grid.best_estimator_
-    logger.info(f"Random Forest training complete. Best params: {grid.best_params_}")
-    logger.info(f"Best CV F1 score: {grid.best_score_:.4f}")
-    return best_model
+    logger.info(f"Random Forest best params: {grid.best_params_}")
+    logger.info(f"Random Forest best CV F1: {grid.best_score_:.4f}")
+    return grid.best_estimator_
+
 
 def train_xgboost(x_train, y_train, param_grid: dict, random_state: int) -> XGBClassifier:
     """
-    Tuned via GridSearchCV (5-fold CV on training data only, scoring F1 —
-    not accuracy, since accuracy is misleading on imbalanced classes).
-    Untuned XGBoost overfits badly (train ~99.8%, test ~79%) because
-    trees grow unconstrained by default; tuning max_depth/learning_rate/n_estimators
-    fixes this.
+    Tuned via GridSearchCV, same reasoning as Random Forest.
+    scale_pos_weight is XGBoost's equivalent of class_weight='balanced'.
     """
-    logger.info("Training XGBoost model with GridSearchCV...")
-
+    logger.info("Training XGBoost (grid search)...")
+    if (y_train == 1).sum() == 0:
+        raise ValueError("y_train has no positive (churn=1) examples — cannot compute scale_pos_weight.")
     scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum()
-    logger.info(f"Calculated scale_pos_weight for XGBoost: {scale_pos_weight:.2f}")
 
     grid = GridSearchCV(
-        estimator=XGBClassifier(scale_pos_weight=1, random_state=random_state, use_label_encoder=False, eval_metric='logloss'),
-        param_grid=param_grid,
-        scoring='f1',
-        cv=5,
-        n_jobs=-1
+        XGBClassifier(scale_pos_weight=scale_pos_weight, random_state=random_state, eval_metric='logloss'),
+        param_grid, cv=5, scoring='f1', n_jobs=-1
     )
-
     grid.fit(x_train, y_train)
-    best_model = grid.best_estimator_
-    logger.info(f"XGBoost training complete. Best params: {grid.best_params_}")
-    logger.info(f"Best CV F1 score: {grid.best_score_:.4f}")
-    return best_model
+    logger.info(f"XGBoost best params: {grid.best_params_}")
+    logger.info(f"XGBoost best CV F1: {grid.best_score_:.4f}")
+    return grid.best_estimator_
+
 
 def evaluate_model(model, x_test, y_test, name: str) -> dict:
-    """
-    Evaluate the model on the test set and return classification metrics.
-    """
-
+    """Evaluate on the test set exactly once — never used during tuning."""
     y_pred = model.predict(x_test)
     report = classification_report(y_test, y_pred, output_dict=True)
     logger.info(
-        f"{name} : accuracy={report['accuracy']:.3f} "
-        f"churn_precision={report['1']['precision']:.3f} "
-        f"churn_recall={report['1']['recall']:.3f} "
+        f"{name}: accuracy={report['accuracy']:.3f}  "
+        f"churn_precision={report['1']['precision']:.3f}  "
+        f"churn_recall={report['1']['recall']:.3f}  "
         f"churn_f1={report['1']['f1-score']:.3f}"
     )
-
     return {
         'name': name,
         'model': model,
         'accuracy': report['accuracy'],
         'churn_precision': report['1']['precision'],
         'churn_recall': report['1']['recall'],
-        'churn_f1': report['1']['f1-score']
+        'churn_f1': report['1']['f1-score'],
     }
 
-def select_best_model(metrics_list: list) -> dict:
+
+def select_best_model(results: list) -> dict:
     """
     Selects the model with the highest churn-class F1 as the primary model.
     NOTE: this optimizes for F1 (precision/recall balance), not recall alone.
@@ -181,22 +205,24 @@ def select_best_model(metrics_list: list) -> dict:
     alarms," a model with higher recall (even at lower F1) may be preferable
     — check the logged comparison and override this selection if so.
     """
+    if not results:
+        raise ValueError("No model results to select from.")
+    best = max(results, key=lambda r: r['churn_f1'])
+    logger.info(f"Selected model: {best['name']} (highest churn-class F1 = {best['churn_f1']:.3f})")
+    return best
 
-    best_model_metrics = max(metrics_list, key=lambda x: x['churn_f1'])
-    logger.info(f"Selected best model: {best_model_metrics['name']} with F1={best_model_metrics['churn_f1']:.3f}")
-    return best_model_metrics
 
 def save_model(model, path: Path) -> None:
-    """Save the trained model to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, path)
-    logger.info(f"Saved model to {path}")
+    logger.info(f"Saved model to: {path}")
+
 
 def save_scaler(scaler, path: Path) -> None:
-    """Save the fitted scaler to disk."""
     path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(scaler, path)
-    logger.info(f"Saved scaler to {path}")
+    logger.info(f"Saved scaler to: {path}")
+
 
 def save_metrics(results: list, best_name: str, data_version: str, path: Path) -> None:
     """
@@ -206,55 +232,49 @@ def save_metrics(results: list, best_name: str, data_version: str, path: Path) -
     """
     metrics = {
         'data_version': data_version,
-        'Selected_model': best_name,
+        'selected_model': best_name,
         'models': [
             {
-                'name': result['name'],
-                'accuracy': result['accuracy'],
-                'churn_precision': result['churn_precision'],
-                'churn_recall': result['churn_recall'],
-                'churn_f1': result['churn_f1']
+                'name': r['name'],
+                'accuracy': r['accuracy'],
+                'churn_precision': r['churn_precision'],
+                'churn_recall': r['churn_recall'],
+                'churn_f1': r['churn_f1'],
             }
-            for result in results
+            for r in results
         ]
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w') as f:
         json.dump(metrics, f, indent=2)
-    logger.info(f"Saved metrics to {path}")
+    logger.info(f"Saved metrics to: {path}")
+
 
 def main():
-    # Load features data
     df = load_features_data(FEATURES_DATA_PATH)
+    validate_features_data(df, TARGET_COL)
 
-    # Split into train/test
     x_train, x_test, y_train, y_test = split_training_testing_data(
         df, TARGET_COL, TEST_SIZE, RANDOM_STATE
     )
+    x_train_scaled, x_test_scaled, scaler = scale_features(x_train, x_test, NUMERIC_COLS)
 
-    # Scale numeric features
-    x_train_scaled, x_test_scaled, scaler = scale_features(
-        x_train, x_test, NUMERIC_COLS
-    )
-
-    # Train models
-    logistic_regression_model = train_logistic_regression(x_train_scaled, y_train, RANDOM_STATE)
-    random_forest_model = train_random_forest(x_train_scaled, y_train, RF_PARAM_GRID, RANDOM_STATE)
-    xgboost_model = train_xgboost(x_train_scaled, y_train, XGB_PARAM_GRID, RANDOM_STATE)
+    log_reg = train_logistic_regression(x_train_scaled, y_train, RANDOM_STATE)
+    rf_model = train_random_forest(x_train_scaled, y_train, RF_PARAM_GRID, RANDOM_STATE)
+    xgb_model = train_xgboost(x_train_scaled, y_train, XGB_PARAM_GRID, RANDOM_STATE)
 
     results = [
-        evaluate_model(logistic_regression_model, x_test_scaled, y_test, "Logistic Regression"),
-        evaluate_model(random_forest_model, x_test_scaled, y_test, "Random Forest"),
-        evaluate_model(xgboost_model, x_test_scaled, y_test, "XGBoost(tuned)")
+        evaluate_model(log_reg, x_test_scaled, y_test, "Logistic Regression"),
+        evaluate_model(rf_model, x_test_scaled, y_test, "Random Forest (tuned)"),
+        evaluate_model(xgb_model, x_test_scaled, y_test, "XGBoost (tuned)"),
     ]
 
-    # Select best model based on F1 score
-    best_model_metrics = select_best_model(results)
+    best = select_best_model(results)
 
-    # Save the best model, scaler, and metrics
-    save_model(best_model_metrics['model'], MODEL_PATH)
+    save_model(best['model'], MODEL_PATH)
     save_scaler(scaler, SCALER_PATH)
-    save_metrics(results, best_model_metrics['name'], DATA_VERSION, METRICS_PATH)
+    save_metrics(results, best['name'], DATA_VERSION, METRICS_PATH)
+
 
 if __name__ == "__main__":
     main()
