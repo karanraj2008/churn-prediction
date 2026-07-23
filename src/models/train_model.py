@@ -91,4 +91,13 @@ def scale_features(x_train, x_test, numeric_cols):
     logger.info(f"Scaled {len(numeric_cols)} numeric columns: {numeric_cols}")
     return x_train_scaled, x_test_scaled, scaler
 
+def train_logistic_regression(x_train, y_train, random_state: int) -> LogisticRegression:
+    """baseline model . class weight = balanced to account for class imbalance"""
+
+    logger.info("Training Logistic Regression model...")
+    model = LogisticRegression(class_weight='balanced', random_state=random_state, max_iter=1000)
+    model.fit(x_train, y_train)
+    logger.info("Logistic Regression training complete.")
+    return model
+
 
