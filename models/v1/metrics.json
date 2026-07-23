@@ -1,0 +1,27 @@
+{
+  "data_version": "v1",
+  "Selected_model": "Random Forest",
+  "models": [
+    {
+      "name": "Logistic Regression",
+      "accuracy": 0.7409510290986515,
+      "churn_precision": 0.5077452667814114,
+      "churn_recall": 0.7887700534759359,
+      "churn_f1": 0.6178010471204188
+    },
+    {
+      "name": "Random Forest",
+      "accuracy": 0.7579843860894251,
+      "churn_precision": 0.5301645338208409,
+      "churn_recall": 0.7754010695187166,
+      "churn_f1": 0.6297502714440825
+    },
+    {
+      "name": "XGBoost(tuned)",
+      "accuracy": 0.7998580553584103,
+      "churn_precision": 0.6564625850340136,
+      "churn_recall": 0.516042780748663,
+      "churn_f1": 0.5778443113772455
+    }
+  ]
+}
