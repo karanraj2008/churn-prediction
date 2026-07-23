@@ -9,6 +9,7 @@ from pathlib import Path
 from src.config import DATA_VERSION, RAW_DATA_FILENAMES
 from src.logger import get_logger
 
+#log the data processing steps
 logger = get_logger(__name__)
 
 # ---- Paths ----
